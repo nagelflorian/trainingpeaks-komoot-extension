@@ -7,14 +7,14 @@
  */
 
 import { expect, test, FIXTURE_HTML, TP_URL } from "./fixtures";
-import type { BrowserContext, Route } from "@playwright/test";
+import type { BrowserContext, Page, Route } from "@playwright/test";
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
 async function openFixturePage(
   context: BrowserContext,
-  komootSetup?: (page: any) => Promise<void>,
-  tpSetup?: (page: any) => Promise<void>,
+  komootSetup?: (page: Page) => Promise<void>,
+  tpSetup?: (page: Page) => Promise<void>,
 ) {
   const page = await context.newPage();
 
@@ -46,13 +46,16 @@ test.describe("Error handling — Komoot API errors", () => {
   }) => {
     const page = await openFixturePage(context, async (page) => {
       // Mock Komoot API to return 401
-      await page.route("**/www.komoot.com/api/v007/**", async (route: Route) => {
-        await route.fulfill({
-          status: 401,
-          contentType: "application/json",
-          body: JSON.stringify({ error: "Unauthorized" }),
-        });
-      });
+      await page.route(
+        "**/www.komoot.com/api/v007/**",
+        async (route: Route) => {
+          await route.fulfill({
+            status: 401,
+            contentType: "application/json",
+            body: JSON.stringify({ error: "Unauthorized" }),
+          });
+        },
+      );
     });
 
     await page.waitForSelector("[data-komoot-tab-btn]", { timeout: 10_000 });
@@ -78,9 +81,12 @@ test.describe("Error handling — Komoot API errors", () => {
   }) => {
     const page = await openFixturePage(context, async (page) => {
       // Mock Komoot API to fail with network error
-      await page.route("**/www.komoot.com/api/v007/**", async (route: Route) => {
-        await route.abort("failed");
-      });
+      await page.route(
+        "**/www.komoot.com/api/v007/**",
+        async (route: Route) => {
+          await route.abort("failed");
+        },
+      );
     });
 
     await page.waitForSelector("[data-komoot-tab-btn]", { timeout: 10_000 });
@@ -166,31 +172,34 @@ test.describe("Error handling — TrainingPeaks API errors", () => {
       context,
       async (page) => {
         // Mock Komoot working
-        await page.route("**/www.komoot.com/api/v007/**", async (route: Route) => {
-          await route.fulfill({
-            status: 200,
-            contentType: "application/json",
-            body: JSON.stringify({
-              _embedded: {
-                items: [
-                  {
-                    id: "route-1",
-                    name: "Test Route",
-                    sport: "jogging",
-                    status: "public",
-                    date: "2026-02-28T08:00:00Z",
-                    distance: 5000,
-                    duration: 1800,
-                    elevation_up: 50,
-                    elevation_down: 50,
-                    difficulty: { grade: "easy" },
-                    vector_map_image: { src: "https://example.com/map.jpg" },
-                  },
-                ],
-              },
-            }),
-          });
-        });
+        await page.route(
+          "**/www.komoot.com/api/v007/**",
+          async (route: Route) => {
+            await route.fulfill({
+              status: 200,
+              contentType: "application/json",
+              body: JSON.stringify({
+                _embedded: {
+                  items: [
+                    {
+                      id: "route-1",
+                      name: "Test Route",
+                      sport: "jogging",
+                      status: "public",
+                      date: "2026-02-28T08:00:00Z",
+                      distance: 5000,
+                      duration: 1800,
+                      elevation_up: 50,
+                      elevation_down: 50,
+                      difficulty: { grade: "easy" },
+                      vector_map_image: { src: "https://example.com/map.jpg" },
+                    },
+                  ],
+                },
+              }),
+            });
+          },
+        );
       },
       async (page) => {
         // Mock TP GET to fail
@@ -244,31 +253,34 @@ test.describe("Error handling — TrainingPeaks API errors", () => {
       context,
       async (page) => {
         // Mock Komoot working
-        await page.route("**/www.komoot.com/api/v007/**", async (route: Route) => {
-          await route.fulfill({
-            status: 200,
-            contentType: "application/json",
-            body: JSON.stringify({
-              _embedded: {
-                items: [
-                  {
-                    id: "route-1",
-                    name: "Test Route",
-                    sport: "jogging",
-                    status: "public",
-                    date: "2026-02-28T08:00:00Z",
-                    distance: 5000,
-                    duration: 1800,
-                    elevation_up: 50,
-                    elevation_down: 50,
-                    difficulty: { grade: "easy" },
-                    vector_map_image: { src: "https://example.com/map.jpg" },
-                  },
-                ],
-              },
-            }),
-          });
-        });
+        await page.route(
+          "**/www.komoot.com/api/v007/**",
+          async (route: Route) => {
+            await route.fulfill({
+              status: 200,
+              contentType: "application/json",
+              body: JSON.stringify({
+                _embedded: {
+                  items: [
+                    {
+                      id: "route-1",
+                      name: "Test Route",
+                      sport: "jogging",
+                      status: "public",
+                      date: "2026-02-28T08:00:00Z",
+                      distance: 5000,
+                      duration: 1800,
+                      elevation_up: 50,
+                      elevation_down: 50,
+                      difficulty: { grade: "easy" },
+                      vector_map_image: { src: "https://example.com/map.jpg" },
+                    },
+                  ],
+                },
+              }),
+            });
+          },
+        );
       },
       async (page) => {
         // Mock TP API
@@ -336,31 +348,34 @@ test.describe("Error handling — TrainingPeaks API errors", () => {
       context,
       async (page) => {
         // Mock Komoot working
-        await page.route("**/www.komoot.com/api/v007/**", async (route: Route) => {
-          await route.fulfill({
-            status: 200,
-            contentType: "application/json",
-            body: JSON.stringify({
-              _embedded: {
-                items: [
-                  {
-                    id: "route-1",
-                    name: "Test Route",
-                    sport: "jogging",
-                    status: "public",
-                    date: "2026-02-28T08:00:00Z",
-                    distance: 5000,
-                    duration: 1800,
-                    elevation_up: 50,
-                    elevation_down: 50,
-                    difficulty: { grade: "easy" },
-                    vector_map_image: { src: "https://example.com/map.jpg" },
-                  },
-                ],
-              },
-            }),
-          });
-        });
+        await page.route(
+          "**/www.komoot.com/api/v007/**",
+          async (route: Route) => {
+            await route.fulfill({
+              status: 200,
+              contentType: "application/json",
+              body: JSON.stringify({
+                _embedded: {
+                  items: [
+                    {
+                      id: "route-1",
+                      name: "Test Route",
+                      sport: "jogging",
+                      status: "public",
+                      date: "2026-02-28T08:00:00Z",
+                      distance: 5000,
+                      duration: 1800,
+                      elevation_up: 50,
+                      elevation_down: 50,
+                      difficulty: { grade: "easy" },
+                      vector_map_image: { src: "https://example.com/map.jpg" },
+                    },
+                  ],
+                },
+              }),
+            });
+          },
+        );
       },
       async (page) => {
         // Mock TP API - fail first, succeed second
@@ -558,20 +573,23 @@ test.describe("Error handling — Specific error messages", () => {
   }) => {
     const page = await openFixturePage(context, async (page) => {
       // Mock Komoot to return specific error message
-      await page.route("**/www.komoot.com/api/v007/**", async (route: Route) => {
-        await route.fulfill({
-          status: 400,
-          contentType: "application/json",
-          body: JSON.stringify({
-            errors: [
-              {
-                code: "VALIDATION_ERROR",
-                message: "Invalid coordinates provided",
-              },
-            ],
-          }),
-        });
-      });
+      await page.route(
+        "**/www.komoot.com/api/v007/**",
+        async (route: Route) => {
+          await route.fulfill({
+            status: 400,
+            contentType: "application/json",
+            body: JSON.stringify({
+              errors: [
+                {
+                  code: "VALIDATION_ERROR",
+                  message: "Invalid coordinates provided",
+                },
+              ],
+            }),
+          });
+        },
+      );
     });
 
     await page.waitForSelector("[data-komoot-tab-btn]", { timeout: 10_000 });

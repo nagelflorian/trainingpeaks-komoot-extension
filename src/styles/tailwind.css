@@ -1,0 +1,31 @@
+@import "tailwindcss";
+
+@theme {
+  --color-primary: #4f6814;
+  --color-primary-hover: #404823;
+  --color-primary-text: #f5f3ec;
+
+  --color-secondary: #e3d2b4;
+  --color-secondary-hover: #d0c1a6;
+  --color-secondary-text: #404823;
+
+  --color-base-text: #1c1a18;
+  --color-border: #edebe5;
+}
+
+/* .komootTab {
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 30px;
+  border-radius: 4px;
+  opacity: 0.5;
+  transition: opacity 0.15s;
+  user-select: none;
+  margin: 12px 0 0 4px;
+}
+
+.komootTab.tabSelected {
+  background: rgba(37, 47, 63, .08);
+} */

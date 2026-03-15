@@ -1,0 +1,63 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <title>TrainingPeaks — Test Fixture</title>
+    <style>
+      .tabSelected {
+        font-weight: bold;
+        border-bottom: 2px solid #000;
+      }
+    </style>
+  </head>
+  <body>
+    <!-- User ID for localStorage (ajs_user_id) — used by TP API calls -->
+    <script>
+      // Initialize localStorage with athlete ID (stripped of JSON quotes if present)
+      localStorage.setItem("ajs_user_id", JSON.stringify("12345"));
+    </script>
+
+    <!-- Selected calendar item — workout ID source -->
+    <div
+      class="activity workout selected"
+      data-workoutid="fixture-workout-123"
+    ></div>
+
+    <!-- Description input -->
+    <div id="descriptionInput" contenteditable="true">Existing notes</div>
+
+    <!-- Workout quick-view panel -->
+    <div class="workoutQuickView">
+      <div>
+        <div class="QVHeader"><h2>Morning Run</h2></div>
+        <div>
+          <!-- tabNavigation triggers content script injection -->
+          <div class="tabNavigation">
+            <div class="summaryTab tabSelected">Summary</div>
+            <div class="mapGraphTab">Map</div>
+          </div>
+          <div class="tabContent tabContentRegion" style="padding: 16px">
+            <p id="original-content">Original workout content</p>
+          </div>
+        </div>
+      </div>
+      <div class="quickviewFooter"></div>
+
+      <!-- Workout metadata (for workoutParser) -->
+      <div class="workoutBarView">
+        <div class="workout Run"></div>
+      </div>
+      <div class="workoutComplianceStatus">
+        <div class="keyStats">
+          <span class="duration">0:30:00</span>
+          <span class="distance">5.00 km</span>
+          <span class="elevation">100 m</span>
+        </div>
+      </div>
+      <div class="dateAndTime">
+        <span>Friday 28 February, 2026</span>
+      </div>
+      <input class="workoutTitle" value="Morning Run" />
+    </div>
+  </body>
+</html>

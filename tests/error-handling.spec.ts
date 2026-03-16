@@ -4,18 +4,50 @@
  * Tests authentication errors (401), network failures, API errors,
  * unsupported sports, and other error conditions that should display
  * appropriate user-facing messages.
+ *
+ * Komoot API mocking uses context.route() to intercept service worker
+ * fetches. TP API mocking uses page.route() (content script calls).
  */
 
-import { expect, test, FIXTURE_HTML, TP_URL } from "./fixtures";
-import type { BrowserContext, Page, Route } from "@playwright/test";
+import {
+  expect,
+  test,
+  FIXTURE_HTML,
+  TP_URL,
+  setupExtensionAuth,
+  setupSessionMock,
+} from "./fixtures";
+import type { BrowserContext, Route } from "@playwright/test";
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
+/**
+ * Open a fixture page with custom API mocking.
+ *
+ * @param komootSetup - context-level route setup for Komoot API (service worker)
+ * @param tpSetup - page-level route setup for TP API (content script)
+ * @param skipAuth - if true, skip auth setup (for testing auth failures)
+ */
 async function openFixturePage(
   context: BrowserContext,
-  komootSetup?: (page: Page) => Promise<void>,
-  tpSetup?: (page: Page) => Promise<void>,
+  extensionId: string,
+  options?: {
+    komootSetup?: (context: BrowserContext) => Promise<void>;
+    tpSetup?: (page: import("@playwright/test").Page) => Promise<void>;
+    skipAuth?: boolean;
+  },
 ) {
+  // Setup auth unless testing auth failures
+  if (!options?.skipAuth) {
+    await setupExtensionAuth(context, extensionId);
+    await setupSessionMock(context);
+  }
+
+  // Custom Komoot API setup (context-level for service worker interception)
+  if (options?.komootSetup) {
+    await options.komootSetup(context);
+  }
+
   const page = await context.newPage();
 
   // Intercept TP page
@@ -26,12 +58,9 @@ async function openFixturePage(
     }),
   );
 
-  // Custom API setup
-  if (komootSetup) {
-    await komootSetup(page);
-  }
-  if (tpSetup) {
-    await tpSetup(page);
+  // Custom TP API setup (page-level for content script interception)
+  if (options?.tpSetup) {
+    await options.tpSetup(page);
   }
 
   await page.goto(TP_URL, { waitUntil: "domcontentloaded" });
@@ -43,19 +72,24 @@ async function openFixturePage(
 test.describe("Error handling — Komoot API errors", () => {
   test("shows sign-in prompt when Komoot returns 401 Unauthorized", async ({
     context,
+    extensionId,
   }) => {
-    const page = await openFixturePage(context, async (page) => {
-      // Mock Komoot API to return 401
-      await page.route(
-        "**/www.komoot.com/api/v007/**",
-        async (route: Route) => {
-          await route.fulfill({
-            status: 401,
-            contentType: "application/json",
-            body: JSON.stringify({ error: "Unauthorized" }),
-          });
-        },
-      );
+    const page = await openFixturePage(context, extensionId, {
+      // Don't set up auth — simulate unauthenticated state
+      skipAuth: true,
+      komootSetup: async (ctx) => {
+        // Mock session endpoint to return 401
+        await ctx.route(
+          "**/account.komoot.com/v1/session",
+          async (route: Route) => {
+            await route.fulfill({
+              status: 401,
+              contentType: "application/json",
+              body: JSON.stringify({ error: "Unauthorized" }),
+            });
+          },
+        );
+      },
     });
 
     await page.waitForSelector("[data-komoot-tab-btn]", { timeout: 10_000 });
@@ -78,15 +112,18 @@ test.describe("Error handling — Komoot API errors", () => {
 
   test("shows error message when route fetch network fails", async ({
     context,
+    extensionId,
   }) => {
-    const page = await openFixturePage(context, async (page) => {
-      // Mock Komoot API to fail with network error
-      await page.route(
-        "**/www.komoot.com/api/v007/**",
-        async (route: Route) => {
-          await route.abort("failed");
-        },
-      );
+    const page = await openFixturePage(context, extensionId, {
+      komootSetup: async (ctx) => {
+        // Mock Komoot API to fail with network error
+        await ctx.route(
+          "**/www.komoot.com/api/v007/**",
+          async (route: Route) => {
+            await route.abort("failed");
+          },
+        );
+      },
     });
 
     await page.waitForSelector("[data-komoot-tab-btn]", { timeout: 10_000 });
@@ -104,22 +141,25 @@ test.describe("Error handling — Komoot API errors", () => {
 
   test("displays 'No matching routes' when API returns empty results", async ({
     context,
+    extensionId,
   }) => {
-    const page = await openFixturePage(context, async (page) => {
-      // Mock Komoot API to return empty results
-      await page.route(
-        "**/www.komoot.com/api/v007/discover_tours/**",
-        async (route: Route) => {
-          await route.fulfill({
-            status: 200,
-            contentType: "application/json",
-            body: JSON.stringify({
-              _embedded: { items: [] },
-              page: { size: 0, totalElements: 0, totalPages: 0, number: 0 },
-            }),
-          });
-        },
-      );
+    const page = await openFixturePage(context, extensionId, {
+      komootSetup: async (ctx) => {
+        // Mock Komoot API to return empty results
+        await ctx.route(
+          "**/www.komoot.com/api/v007/discover_tours/**",
+          async (route: Route) => {
+            await route.fulfill({
+              status: 200,
+              contentType: "application/json",
+              body: JSON.stringify({
+                _embedded: { items: [] },
+                page: { size: 0, totalElements: 0, totalPages: 0, number: 0 },
+              }),
+            });
+          },
+        );
+      },
     });
 
     await page.waitForSelector("[data-komoot-tab-btn]", { timeout: 10_000 });
@@ -137,19 +177,22 @@ test.describe("Error handling — Komoot API errors", () => {
 
   test("handles malformed Komoot API response gracefully", async ({
     context,
+    extensionId,
   }) => {
-    const page = await openFixturePage(context, async (page) => {
-      // Mock Komoot API to return invalid JSON
-      await page.route(
-        "**/www.komoot.com/api/v007/discover_tours/**",
-        async (route: Route) => {
-          await route.fulfill({
-            status: 200,
-            contentType: "application/json",
-            body: "invalid json {{{",
-          });
-        },
-      );
+    const page = await openFixturePage(context, extensionId, {
+      komootSetup: async (ctx) => {
+        // Mock Komoot API to return invalid JSON
+        await ctx.route(
+          "**/www.komoot.com/api/v007/discover_tours/**",
+          async (route: Route) => {
+            await route.fulfill({
+              status: 200,
+              contentType: "application/json",
+              body: "invalid json {{{",
+            });
+          },
+        );
+      },
     });
 
     await page.waitForSelector("[data-komoot-tab-btn]", { timeout: 10_000 });
@@ -167,12 +210,14 @@ test.describe("Error handling — Komoot API errors", () => {
 });
 
 test.describe("Error handling — TrainingPeaks API errors", () => {
-  test("shows error when TP workout GET fails", async ({ context }) => {
-    const page = await openFixturePage(
-      context,
-      async (page) => {
+  test("shows error when TP workout GET fails", async ({
+    context,
+    extensionId,
+  }) => {
+    const page = await openFixturePage(context, extensionId, {
+      komootSetup: async (ctx) => {
         // Mock Komoot working
-        await page.route(
+        await ctx.route(
           "**/www.komoot.com/api/v007/**",
           async (route: Route) => {
             await route.fulfill({
@@ -201,7 +246,7 @@ test.describe("Error handling — TrainingPeaks API errors", () => {
           },
         );
       },
-      async (page) => {
+      tpSetup: async (page) => {
         // Mock TP GET to fail
         await page.route(
           "**/tpapi.trainingpeaks.com/fitness/v6/athletes/*/workouts/*",
@@ -217,7 +262,7 @@ test.describe("Error handling — TrainingPeaks API errors", () => {
           },
         );
       },
-    );
+    });
 
     await page.waitForSelector("[data-komoot-tab-btn]", { timeout: 10_000 });
 
@@ -248,12 +293,12 @@ test.describe("Error handling — TrainingPeaks API errors", () => {
 
   test("shows error when TP workout PUT fails with 500", async ({
     context,
+    extensionId,
   }) => {
-    const page = await openFixturePage(
-      context,
-      async (page) => {
+    const page = await openFixturePage(context, extensionId, {
+      komootSetup: async (ctx) => {
         // Mock Komoot working
-        await page.route(
+        await ctx.route(
           "**/www.komoot.com/api/v007/**",
           async (route: Route) => {
             await route.fulfill({
@@ -282,7 +327,7 @@ test.describe("Error handling — TrainingPeaks API errors", () => {
           },
         );
       },
-      async (page) => {
+      tpSetup: async (page) => {
         // Mock TP API
         await page.route(
           "**/tpapi.trainingpeaks.com/fitness/v6/athletes/*/workouts/*",
@@ -311,7 +356,7 @@ test.describe("Error handling — TrainingPeaks API errors", () => {
           },
         );
       },
-    );
+    });
 
     await page.waitForSelector("[data-komoot-tab-btn]", { timeout: 10_000 });
 
@@ -342,13 +387,13 @@ test.describe("Error handling — TrainingPeaks API errors", () => {
 
   test("button remains clickable for retry after TP API error", async ({
     context,
+    extensionId,
   }) => {
     let failCount = 0;
-    const page = await openFixturePage(
-      context,
-      async (page) => {
+    const page = await openFixturePage(context, extensionId, {
+      komootSetup: async (ctx) => {
         // Mock Komoot working
-        await page.route(
+        await ctx.route(
           "**/www.komoot.com/api/v007/**",
           async (route: Route) => {
             await route.fulfill({
@@ -377,7 +422,7 @@ test.describe("Error handling — TrainingPeaks API errors", () => {
           },
         );
       },
-      async (page) => {
+      tpSetup: async (page) => {
         // Mock TP API - fail first, succeed second
         await page.route(
           "**/tpapi.trainingpeaks.com/fitness/v6/athletes/*/workouts/*",
@@ -421,7 +466,7 @@ test.describe("Error handling — TrainingPeaks API errors", () => {
           },
         );
       },
-    );
+    });
 
     await page.waitForSelector("[data-komoot-tab-btn]", { timeout: 10_000 });
 
@@ -451,7 +496,7 @@ test.describe("Error handling — TrainingPeaks API errors", () => {
     addButton = page
       .locator('[data-testid="route-card"]')
       .first()
-      .getByRole("button", { name: /retry|try again|add route/i });
+      .getByRole("button", { name: /retry|try again|attach route/i });
     await addButton.click();
 
     // Second attempt should succeed - error should disappear
@@ -469,56 +514,63 @@ test.describe("Error handling — TrainingPeaks API errors", () => {
 test.describe("Error handling — Unsupported scenarios", () => {
   test("shows 'sport not supported' message for unsupported workout type", async ({
     context,
+    extensionId,
   }) => {
-    const page = await openFixturePage(context, async (page) => {
-      // Mock Komoot to return empty for unsupported sport
-      await page.route(
-        "**/www.komoot.com/api/v007/discover_tours/**",
-        async (route: Route) => {
-          const url = new URL(route.request().url());
-          const sports = url.searchParams.getAll("sport[]");
+    const page = await openFixturePage(context, extensionId, {
+      komootSetup: async (ctx) => {
+        await ctx.route(
+          "**/www.komoot.com/api/v007/discover_tours/**",
+          async (route: Route) => {
+            const url = new URL(route.request().url());
+            const sports = url.searchParams.getAll("sport[]");
 
-          // Return empty if sport is unsupported
-          if (!sports.includes("jogging") && !sports.includes("running")) {
-            await route.fulfill({
-              status: 200,
-              contentType: "application/json",
-              body: JSON.stringify({
-                _embedded: { items: [] },
-                page: { size: 0, totalElements: 0, totalPages: 0, number: 0 },
-              }),
-            });
-          } else {
-            // For supported sports, return routes
-            await route.fulfill({
-              status: 200,
-              contentType: "application/json",
-              body: JSON.stringify({
-                _embedded: {
-                  items: [
-                    {
-                      id: "route-1",
-                      name: "Test Route",
-                      sport: sports[0],
-                      distance: 5000,
-                      duration: 1800,
-                      elevation_up: 50,
-                      elevation_down: 50,
-                      difficulty: { grade: "easy" },
-                      vector_map_image: { src: "https://example.com/map.jpg" },
-                    },
-                  ],
-                },
-              }),
-            });
-          }
-        },
-      );
+            // Return empty if sport is unsupported
+            if (!sports.includes("jogging") && !sports.includes("running")) {
+              await route.fulfill({
+                status: 200,
+                contentType: "application/json",
+                body: JSON.stringify({
+                  _embedded: { items: [] },
+                  page: {
+                    size: 0,
+                    totalElements: 0,
+                    totalPages: 0,
+                    number: 0,
+                  },
+                }),
+              });
+            } else {
+              // For supported sports, return routes
+              await route.fulfill({
+                status: 200,
+                contentType: "application/json",
+                body: JSON.stringify({
+                  _embedded: {
+                    items: [
+                      {
+                        id: "route-1",
+                        name: "Test Route",
+                        sport: sports[0],
+                        distance: 5000,
+                        duration: 1800,
+                        elevation_up: 50,
+                        elevation_down: 50,
+                        difficulty: { grade: "easy" },
+                        vector_map_image: {
+                          src: "https://example.com/map.jpg",
+                        },
+                      },
+                    ],
+                  },
+                }),
+              });
+            }
+          },
+        );
+      },
     });
 
     // The fixture uses "Run" sport which maps to jogging, so we should see routes
-    // To test unsupported sport, we'd need to modify the fixture HTML
-    // For now, just verify the test infrastructure works
     await page.waitForSelector("[data-komoot-tab-btn]", { timeout: 10_000 });
 
     // Activate Komoot tab
@@ -526,7 +578,7 @@ test.describe("Error handling — Unsupported scenarios", () => {
 
     // Should either show routes or unsupported message
     await expect(
-      page.getByText(/(Route|sport|not supported|no routes)/i),
+      page.getByText(/(Route|sport|not supported|no routes)/i).first(),
     ).toBeVisible({ timeout: 10_000 });
 
     await page.close();
@@ -534,24 +586,36 @@ test.describe("Error handling — Unsupported scenarios", () => {
 
   test("shows message when no home location is configured", async ({
     context,
+    extensionId,
   }) => {
-    const page = await openFixturePage(context, async (page) => {
-      // Mock Komoot to return error for no home location
-      await page.route(
-        "**/www.komoot.com/api/v007/discover_tours/**",
-        async (route: Route) => {
-          // Simulate missing home location config
-          await route.fulfill({
-            status: 400,
-            contentType: "application/json",
-            body: JSON.stringify({
-              error: "NO_HOME_LOCATION",
-              message: "Please configure your home location in settings",
-            }),
-          });
+    // Setup auth but WITHOUT homeLocation in options
+    const setupPage = await context.newPage();
+    await setupPage.goto(
+      `chrome-extension://${extensionId}/src/popup/index.html`,
+    );
+    await setupPage.evaluate(() => {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      return (globalThis as any).chrome.storage.local.set({
+        komootAuth: { userId: "test-user-123", displayName: "Test User" },
+        komootOptions: {
+          weights: { duration: 0.5, distance: 0.35, elevation: 0.15 },
+          // No homeLocation — should trigger NO_HOME_LOCATION error
+          maxResults: 5,
         },
-      );
+      });
     });
+    await setupPage.close();
+
+    await setupSessionMock(context);
+
+    const page = await context.newPage();
+    await page.route(`${TP_URL}**`, (route: Route) =>
+      route.fulfill({
+        contentType: "text/html; charset=utf-8",
+        body: FIXTURE_HTML,
+      }),
+    );
+    await page.goto(TP_URL, { waitUntil: "domcontentloaded" });
 
     await page.waitForSelector("[data-komoot-tab-btn]", { timeout: 10_000 });
 
@@ -570,26 +634,29 @@ test.describe("Error handling — Unsupported scenarios", () => {
 test.describe("Error handling — Specific error messages", () => {
   test("displays meaningful error message from API error response", async ({
     context,
+    extensionId,
   }) => {
-    const page = await openFixturePage(context, async (page) => {
-      // Mock Komoot to return specific error message
-      await page.route(
-        "**/www.komoot.com/api/v007/**",
-        async (route: Route) => {
-          await route.fulfill({
-            status: 400,
-            contentType: "application/json",
-            body: JSON.stringify({
-              errors: [
-                {
-                  code: "VALIDATION_ERROR",
-                  message: "Invalid coordinates provided",
-                },
-              ],
-            }),
-          });
-        },
-      );
+    const page = await openFixturePage(context, extensionId, {
+      komootSetup: async (ctx) => {
+        // Mock Komoot to return specific error message
+        await ctx.route(
+          "**/www.komoot.com/api/v007/**",
+          async (route: Route) => {
+            await route.fulfill({
+              status: 400,
+              contentType: "application/json",
+              body: JSON.stringify({
+                errors: [
+                  {
+                    code: "VALIDATION_ERROR",
+                    message: "Invalid coordinates provided",
+                  },
+                ],
+              }),
+            });
+          },
+        );
+      },
     });
 
     await page.waitForSelector("[data-komoot-tab-btn]", { timeout: 10_000 });

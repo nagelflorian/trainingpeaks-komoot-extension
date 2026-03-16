@@ -235,6 +235,7 @@ export function RouteCard({
 
   return (
     <div
+      data-testid="route-card"
       className="flex flex-col border border-gray-200 rounded-lg bg-white shadow-sm hover:shadow-md transition-shadow"
       style={
         isAdded
@@ -261,6 +262,7 @@ export function RouteCard({
           <div className="absolute top-2 right-2 flex gap-1">
             {tour._score !== undefined && (
               <span
+                data-testid="score"
                 className="relative text-xs px-2 py-0.5 rounded-full font-medium bg-primary text-primary-text cursor-default"
                 onMouseEnter={() => setScoreHovered(true)}
                 onMouseLeave={() => setScoreHovered(false)}

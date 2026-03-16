@@ -12,12 +12,17 @@ import {
   FIXTURE_HTML,
   TP_URL,
   setupKomootMocking,
+  setupExtensionAuth,
 } from "./fixtures";
 import type { BrowserContext } from "@playwright/test";
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
-async function openFixturePage(context: BrowserContext) {
+async function openFixturePage(context: BrowserContext, extensionId: string) {
+  // Setup auth storage and API mocking before navigating
+  await setupExtensionAuth(context, extensionId);
+  await setupKomootMocking(context);
+
   const page = await context.newPage();
   // Intercept TP page
   await page.route(`${TP_URL}**`, (route) =>
@@ -26,8 +31,6 @@ async function openFixturePage(context: BrowserContext) {
       body: FIXTURE_HTML,
     }),
   );
-  // Setup Komoot API mocking
-  await setupKomootMocking(page);
   await page.goto(TP_URL, { waitUntil: "domcontentloaded" });
   return page;
 }
@@ -37,19 +40,20 @@ async function openFixturePage(context: BrowserContext) {
 test.describe("Route card rendering", () => {
   test("displays route cards with mocked Komoot API data", async ({
     context,
+    extensionId,
   }) => {
-    const page = await openFixturePage(context);
+    const page = await openFixturePage(context, extensionId);
     await page.waitForSelector("[data-komoot-tab-btn]", { timeout: 10_000 });
 
     // Activate Komoot tab
     await page.locator("[data-komoot-tab-btn]").click();
 
-    // Wait for suggestions to load
-    await expect(page.getByText("Suggested Routes")).toBeVisible({
-      timeout: 10_000,
-    });
+    // Wait for route cards to load
+    await expect(
+      page.locator('[data-testid="route-card"]').first(),
+    ).toBeVisible({ timeout: 10_000 });
 
-    // Verify route cards are rendered
+    // Verify multiple route cards are rendered
     const routeCards = page.locator('[data-testid="route-card"]');
     const cardCount = await routeCards.count();
     expect(cardCount).toBeGreaterThan(0);
@@ -59,8 +63,9 @@ test.describe("Route card rendering", () => {
 
   test("renders route title, distance, duration, and elevation", async ({
     context,
+    extensionId,
   }) => {
-    const page = await openFixturePage(context);
+    const page = await openFixturePage(context, extensionId);
     await page.waitForSelector("[data-komoot-tab-btn]", { timeout: 10_000 });
 
     // Activate Komoot tab
@@ -79,21 +84,22 @@ test.describe("Route card rendering", () => {
     ).toContainText(/Loop|Trail|Route/);
 
     // Verify distance is shown
-    await expect(page.getByText(/\d+\.?\d*\s*(km|mi)/)).toBeVisible();
+    await expect(page.getByText(/\d+\.?\d*\s*(km|mi)/).first()).toBeVisible();
 
-    // Verify duration is shown (e.g., "30 mins")
-    await expect(page.getByText(/\d+\s*mins?/)).toBeVisible();
+    // Verify duration is shown (e.g., "⏱ 30m")
+    await expect(page.getByText(/⏱/).first()).toBeVisible();
 
     // Verify elevation is shown
-    await expect(page.getByText(/\d+\s*m/)).toBeVisible();
+    await expect(page.getByText(/\d+\s*m/).first()).toBeVisible();
 
     await page.close();
   });
 
   test("displays route map image from vector_map_image.src", async ({
     context,
+    extensionId,
   }) => {
-    const page = await openFixturePage(context);
+    const page = await openFixturePage(context, extensionId);
     await page.waitForSelector("[data-komoot-tab-btn]", { timeout: 10_000 });
 
     // Activate Komoot tab
@@ -117,8 +123,9 @@ test.describe("Route card rendering", () => {
 
   test("displays route metadata: ratings and visitor count", async ({
     context,
+    extensionId,
   }) => {
-    const page = await openFixturePage(context);
+    const page = await openFixturePage(context, extensionId);
     await page.waitForSelector("[data-komoot-tab-btn]", { timeout: 10_000 });
 
     // Activate Komoot tab
@@ -131,17 +138,20 @@ test.describe("Route card rendering", () => {
       timeout: 10_000,
     });
 
-    // Verify rating score is displayed (e.g., "4.7" stars)
-    await expect(page.getByText(/\b(4\.\d|[0-5])\b/)).toBeVisible();
+    // Verify rating score is displayed (e.g., "★ 4.7 (156)")
+    await expect(page.getByText(/★\s*\d\.\d/).first()).toBeVisible();
 
-    // Verify visitor count or rating count is shown
-    await expect(page.getByText(/\d+\s*(visitor|rating)/)).toBeVisible();
+    // Verify visitor count is shown (e.g., "👁 2,341")
+    await expect(page.getByText(/👁/).first()).toBeVisible();
 
     await page.close();
   });
 
-  test("shows difficulty badge (easy/moderate/hard)", async ({ context }) => {
-    const page = await openFixturePage(context);
+  test("shows difficulty badge (easy/moderate/hard)", async ({
+    context,
+    extensionId,
+  }) => {
+    const page = await openFixturePage(context, extensionId);
     await page.waitForSelector("[data-komoot-tab-btn]", { timeout: 10_000 });
 
     // Activate Komoot tab
@@ -155,13 +165,16 @@ test.describe("Route card rendering", () => {
     });
 
     // Verify difficulty badge is displayed
-    await expect(page.getByText(/(easy|moderate|hard)/i)).toBeVisible();
+    await expect(page.getByText(/(easy|moderate|hard)/i).first()).toBeVisible();
 
     await page.close();
   });
 
-  test("displays score percentage in card header", async ({ context }) => {
-    const page = await openFixturePage(context);
+  test("displays score percentage in card header", async ({
+    context,
+    extensionId,
+  }) => {
+    const page = await openFixturePage(context, extensionId);
     await page.waitForSelector("[data-komoot-tab-btn]", { timeout: 10_000 });
 
     // Activate Komoot tab
@@ -175,13 +188,13 @@ test.describe("Route card rendering", () => {
     });
 
     // Verify score percentage is displayed (e.g., "95%")
-    await expect(page.getByText(/\d+%/)).toBeVisible();
+    await expect(page.getByText(/\d+%/).first()).toBeVisible();
 
     await page.close();
   });
 
-  test("displays Add to workout button", async ({ context }) => {
-    const page = await openFixturePage(context);
+  test("displays Add to workout button", async ({ context, extensionId }) => {
+    const page = await openFixturePage(context, extensionId);
     await page.waitForSelector("[data-komoot-tab-btn]", { timeout: 10_000 });
 
     // Activate Komoot tab
@@ -197,7 +210,7 @@ test.describe("Route card rendering", () => {
     // Verify Add to workout button is visible
     const addButton = page
       .getByRole("button", {
-        name: /add to workout|add route/i,
+        name: /attach route|add to workout/i,
       })
       .first();
     await expect(addButton).toBeVisible();
@@ -205,8 +218,11 @@ test.describe("Route card rendering", () => {
     await page.close();
   });
 
-  test("routes are sorted by score (highest first)", async ({ context }) => {
-    const page = await openFixturePage(context);
+  test("routes are sorted by score (highest first)", async ({
+    context,
+    extensionId,
+  }) => {
+    const page = await openFixturePage(context, extensionId);
     await page.waitForSelector("[data-komoot-tab-btn]", { timeout: 10_000 });
 
     // Activate Komoot tab

@@ -1,13 +1,15 @@
 /**
  * Playwright utilities for mocking Komoot and TP APIs in E2E tests.
  *
- * Strategies:
- * - Intercept HTTP requests with page.route()
- * - Serve fixture data based on URL patterns and request params
- * - Capture and validate PUT requests for verification
+ * Key insight: Komoot API calls are made from the background SERVICE WORKER,
+ * so we must use context.route() (not page.route()) to intercept them.
+ * TP API calls are made from the content script, so page.route() works.
+ *
+ * Auth setup uses the extension popup page to set browser.storage.local
+ * before tests navigate to the fixture page.
  */
 
-import { type Page } from "@playwright/test";
+import { type BrowserContext, type Page } from "@playwright/test";
 import type { KomootTour, KomootSportType } from "../../src/types/komoot";
 import {
   mockKomootDiscoverResponse,
@@ -15,22 +17,76 @@ import {
   mockTPWorkoutResponse,
 } from "../fixtures/komoot-responses";
 
+// ─── Extension auth & storage setup ─────────────────────────────────────────
+
+/**
+ * Pre-populate extension storage with auth credentials and options.
+ * Must be called before navigating to the fixture page so that the
+ * background service worker finds valid auth when handling messages.
+ *
+ * Uses the extension popup page to access chrome.storage.local.
+ */
+export async function setupExtensionAuth(
+  context: BrowserContext,
+  extensionId: string,
+) {
+  const setupPage = await context.newPage();
+  await setupPage.goto(
+    `chrome-extension://${extensionId}/src/popup/index.html`,
+  );
+  await setupPage.evaluate(() => {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    return (globalThis as any).chrome.storage.local.set({
+      komootAuth: { userId: "test-user-123", displayName: "Test User" },
+      komootOptions: {
+        weights: { duration: 0.5, distance: 0.35, elevation: 0.15 },
+        homeLocation: { lat: 48.137, lng: 11.576 },
+        maxResults: 5,
+      },
+    });
+  });
+  await setupPage.close();
+}
+
+/**
+ * Mock the Komoot session endpoint at context level so verifyAuth()
+ * succeeds even without real cookies.
+ */
+export async function setupSessionMock(context: BrowserContext) {
+  await context.route("**/account.komoot.com/v1/session", async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({
+        _embedded: {
+          profile: {
+            username: "test-user-123",
+            display_name: "Test User",
+          },
+        },
+      }),
+    });
+  });
+}
+
+// ─── Komoot API Mocking (context-level for service worker) ──────────────────
+
 /**
  * Setup default Komoot API mocking for route discovery and activities.
- * Routes can be overridden with more specific handlers.
+ * Uses context.route() to intercept service worker fetches.
  */
-export async function setupKomootMocking(page: Page) {
+export async function setupKomootMocking(context: BrowserContext) {
+  // Mock session endpoint
+  await setupSessionMock(context);
+
   // GET /discover_tours/ (route search)
-  await page.route(
+  await context.route(
     "**/www.komoot.com/api/v007/discover_tours/*",
     async (route) => {
       const url = new URL(route.request().url());
       const params = url.searchParams;
-
-      // Check if sport parameter is provided
       const sports = params.getAll("sport[]");
 
-      // For demo: return 3 varied quality routes
       const DEMO_ROUTES = [
         {
           id: "route-1",
@@ -120,7 +176,7 @@ export async function setupKomootMocking(page: Page) {
   );
 
   // GET /users/{userId}/activities/ (activity history)
-  await page.route(
+  await context.route(
     "**/www.komoot.com/api/v007/users/*/activities/*",
     async (route) => {
       const DEMO_ACTIVITIES: KomootTour[] = [
@@ -170,35 +226,7 @@ export async function setupKomootMocking(page: Page) {
   );
 }
 
-/**
- * Mock a Komoot API endpoint to return 401 Unauthorized.
- * Call this instead of/before setupKomootMocking() to simulate auth failure.
- */
-export async function setupKomootAuthError(page: Page) {
-  await page.route("**/www.komoot.com/api/v007/**", async (route) => {
-    await route.abort("aborted");
-  });
-
-  // Intercept more directly to return 401
-  await page.route("**/www.komoot.com/api/v007/**", async (route) => {
-    await route.fulfill({
-      status: 401,
-      contentType: "application/json",
-      body: JSON.stringify({ error: "Unauthorized" }),
-    });
-  });
-}
-
-/**
- * Mock a network failure for Komoot API calls.
- */
-export async function setupKomootNetworkError(page: Page) {
-  await page.route("**/www.komoot.com/api/v007/**", async (route) => {
-    await route.abort("failed");
-  });
-}
-
-// ─── TrainingPeaks API Mocking ──────────────────────────────────────────────
+// ─── TrainingPeaks API Mocking (page-level for content script) ──────────────
 
 interface CapturedPutRequest {
   athleteId: string;
@@ -210,28 +238,25 @@ const capturedPutRequests: CapturedPutRequest[] = [];
 
 /**
  * Setup TP API mocking for workout GET and PUT operations.
- * Returns helpers to verify captured requests.
+ * Uses page.route() since TP API calls are made from the content script.
  */
 export async function setupTPMocking(page: Page) {
-  // GET /fitness/v6/athletes/{athleteId}/workouts/{workoutId}
   await page.route(
     "**/tpapi.trainingpeaks.com/fitness/v6/athletes/*/workouts/*",
     async (route) => {
       const method = route.request().method();
 
       if (method === "GET") {
-        // Return a mock workout with description field
         await route.fulfill({
           status: 200,
           contentType: "application/json",
           body: JSON.stringify(mockTPWorkoutResponse()),
         });
       } else if (method === "PUT") {
-        // Capture PUT request for later verification
         const url = new URL(route.request().url());
         const pathParts = url.pathname.split("/");
-        const athleteId = pathParts[5];
-        const workoutId = pathParts[7];
+        const athleteId = pathParts[4];
+        const workoutId = pathParts[6];
 
         const body = JSON.parse(route.request().postData() || "{}");
 
@@ -241,7 +266,6 @@ export async function setupTPMocking(page: Page) {
           body,
         });
 
-        // Return success with updated object
         await route.fulfill({
           status: 200,
           contentType: "application/json",

@@ -14,7 +14,10 @@ import { expect, test, FIXTURE_HTML, TP_URL } from "./fixtures";
 async function openFixturePage(context: BrowserContext) {
   const page = await context.newPage();
   await page.route(`${TP_URL}**`, (route) =>
-    route.fulfill({ contentType: "text/html; charset=utf-8", body: FIXTURE_HTML }),
+    route.fulfill({
+      contentType: "text/html; charset=utf-8",
+      body: FIXTURE_HTML,
+    }),
   );
   await page.goto(TP_URL, { waitUntil: "domcontentloaded" });
   return page;

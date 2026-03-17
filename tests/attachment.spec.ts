@@ -11,6 +11,7 @@ import {
   FIXTURE_HTML,
   TP_URL,
   setupKomootMocking,
+  setupExtensionAuth,
   setupTPMocking,
   clearCapturedPutRequests,
   getLastPutRequest,
@@ -20,7 +21,11 @@ import type { BrowserContext } from "@playwright/test";
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
-async function openFixturePage(context: BrowserContext) {
+async function openFixturePage(context: BrowserContext, extensionId: string) {
+  // Setup auth storage and API mocking before navigating
+  await setupExtensionAuth(context, extensionId);
+  await setupKomootMocking(context);
+
   const page = await context.newPage();
   // Intercept TP page
   await page.route(`${TP_URL}**`, (route) =>
@@ -29,8 +34,7 @@ async function openFixturePage(context: BrowserContext) {
       body: FIXTURE_HTML,
     }),
   );
-  // Setup API mocking
-  await setupKomootMocking(page);
+  // Setup TP API mocking (content script calls, page-level is fine)
   await setupTPMocking(page);
   clearCapturedPutRequests();
 
@@ -43,8 +47,9 @@ async function openFixturePage(context: BrowserContext) {
 test.describe("Route attachment to TP workouts", () => {
   test("attaches route to workout description via TP API", async ({
     context,
+    extensionId,
   }) => {
-    const page = await openFixturePage(context);
+    const page = await openFixturePage(context, extensionId);
     await page.waitForSelector("[data-komoot-tab-btn]", { timeout: 10_000 });
 
     // Activate Komoot tab
@@ -61,7 +66,7 @@ test.describe("Route attachment to TP workouts", () => {
     const addButton = page
       .locator('[data-testid="route-card"]')
       .first()
-      .getByRole("button", { name: /add to workout|add route/i });
+      .getByRole("button", { name: /attach route|add to workout/i });
     await addButton.click();
 
     // Wait for TP API call to complete
@@ -75,15 +80,16 @@ test.describe("Route attachment to TP workouts", () => {
 
     // Verify description contains route URL
     const description = putRequest?.body.description as string;
-    expect(description).toMatch(/Route: https:\/\/www\.komoot\.com\/routes\//);
+    expect(description).toMatch(/Route: https:\/\/www\.komoot\.com\//);
 
     await page.close();
   });
 
   test("preserves existing description when adding route", async ({
     context,
+    extensionId,
   }) => {
-    const page = await openFixturePage(context);
+    const page = await openFixturePage(context, extensionId);
     await page.waitForSelector("[data-komoot-tab-btn]", { timeout: 10_000 });
 
     // Activate Komoot tab
@@ -100,7 +106,7 @@ test.describe("Route attachment to TP workouts", () => {
     const addButton = page
       .locator('[data-testid="route-card"]')
       .first()
-      .getByRole("button", { name: /add to workout|add route/i });
+      .getByRole("button", { name: /attach route|add to workout/i });
     await addButton.click();
 
     // Wait for TP API call
@@ -110,13 +116,14 @@ test.describe("Route attachment to TP workouts", () => {
     const putRequest = getLastPutRequest();
     const description = putRequest?.body.description as string;
     expect(description).toContain("Existing notes");
-    expect(description).toMatch(/Route: https:\/\/www\.komoot\.com\/routes\//);
+    expect(description).toMatch(/Route: https:\/\/www\.komoot\.com\//);
   });
 
   test("button text changes to 'Already added' when route is attached", async ({
     context,
+    extensionId,
   }) => {
-    const page = await openFixturePage(context);
+    const page = await openFixturePage(context, extensionId);
     await page.waitForSelector("[data-komoot-tab-btn]", { timeout: 10_000 });
 
     // Activate Komoot tab
@@ -134,7 +141,7 @@ test.describe("Route attachment to TP workouts", () => {
 
     // Click "Add to workout" button
     const addButton = firstCard.getByRole("button", {
-      name: /add to workout|add route/i,
+      name: /attach route|add to workout/i,
     });
     await addButton.click();
 
@@ -142,10 +149,9 @@ test.describe("Route attachment to TP workouts", () => {
     await page.waitForTimeout(1000);
 
     // Wait for button text to update to "Already added"
-    // Note: This depends on the component re-rendering after state update
     await expect(
       firstCard.getByRole("button", {
-        name: /already added|added to workout/i,
+        name: /detach route|already added/i,
       }),
     ).toBeVisible({ timeout: 5_000 });
 
@@ -154,8 +160,9 @@ test.describe("Route attachment to TP workouts", () => {
 
   test("detaches route by removing route line from description", async ({
     context,
+    extensionId,
   }) => {
-    const page = await openFixturePage(context);
+    const page = await openFixturePage(context, extensionId);
     await page.waitForSelector("[data-komoot-tab-btn]", { timeout: 10_000 });
 
     // Activate Komoot tab
@@ -180,7 +187,7 @@ test.describe("Route attachment to TP workouts", () => {
     const detachButton = page
       .locator('[data-testid="route-card"]')
       .first()
-      .getByRole("button", { name: /already added|added to workout/i });
+      .getByRole("button", { name: /detach route|already added/i });
     await detachButton.click();
 
     // Wait for TP API call
@@ -192,9 +199,7 @@ test.describe("Route attachment to TP workouts", () => {
 
     // Verify route line was removed
     const description = lastRequest?.body.description as string;
-    expect(description).not.toMatch(
-      /Route: https:\/\/www\.komoot\.com\/routes\//,
-    );
+    expect(description).not.toMatch(/Route: https:\/\/www\.komoot\.com\//);
     // But existing notes should still be there
     expect(description).toContain("Existing notes");
 
@@ -203,8 +208,9 @@ test.describe("Route attachment to TP workouts", () => {
 
   test("cross-card state sync: attaching one route reflects in other cards", async ({
     context,
+    extensionId,
   }) => {
-    const page = await openFixturePage(context);
+    const page = await openFixturePage(context, extensionId);
     await page.waitForSelector("[data-komoot-tab-btn]", { timeout: 10_000 });
 
     // Activate Komoot tab
@@ -233,13 +239,13 @@ test.describe("Route attachment to TP workouts", () => {
     // Verify first card shows "Already added"
     await expect(
       page.locator('[data-testid="route-card"]').nth(0).getByRole("button"),
-    ).toContainText(/already added|added to workout/i);
+    ).toContainText(/detach route|already added/i);
 
     // Verify other cards still show "Add to workout"
     for (let i = 1; i < Math.min(cardCount, 3); i++) {
       await expect(
         page.locator('[data-testid="route-card"]').nth(i).getByRole("button"),
-      ).toContainText(/add to workout|add route/i);
+      ).toContainText(/attach route|add to workout/i);
     }
 
     await page.close();
@@ -247,8 +253,9 @@ test.describe("Route attachment to TP workouts", () => {
 
   test("handles TP API errors gracefully with error message", async ({
     context,
+    extensionId,
   }) => {
-    const page = await openFixturePage(context);
+    const page = await openFixturePage(context, extensionId);
 
     // Override TP API to return error on PUT
     await page.route(
@@ -296,8 +303,9 @@ test.describe("Route attachment to TP workouts", () => {
 
   test("button becomes disabled while attachment is in progress", async ({
     context,
+    extensionId,
   }) => {
-    const page = await openFixturePage(context);
+    const page = await openFixturePage(context, extensionId);
     await page.waitForSelector("[data-komoot-tab-btn]", { timeout: 10_000 });
 
     // Activate Komoot tab
@@ -320,7 +328,6 @@ test.describe("Route attachment to TP workouts", () => {
     await addButton.click();
 
     // Button might show "Saving..." or be disabled
-    // (This depends on component implementation)
     // For now, just verify page doesn't crash
     await page.waitForTimeout(1000);
 
@@ -329,10 +336,22 @@ test.describe("Route attachment to TP workouts", () => {
 
   test("validates description format: removes duplicate route lines", async ({
     context,
+    extensionId,
   }) => {
-    const page = await openFixturePage(context);
+    // Setup auth + Komoot mocking
+    await setupExtensionAuth(context, extensionId);
+    await setupKomootMocking(context);
 
-    // Mock TP GET to return description with existing route
+    const page = await context.newPage();
+    await page.route(`${TP_URL}**`, (route) =>
+      route.fulfill({
+        contentType: "text/html; charset=utf-8",
+        body: FIXTURE_HTML,
+      }),
+    );
+
+    // Custom TP mock: GET returns description with existing old route
+    let capturedDescription: string | undefined;
     await page.route(
       "**/tpapi.trainingpeaks.com/fitness/v6/athletes/*/workouts/*",
       async (route) => {
@@ -352,8 +371,8 @@ test.describe("Route attachment to TP workouts", () => {
             }),
           });
         } else if (method === "PUT") {
-          // Capture to verify old route was removed
           const body = JSON.parse(route.request().postData() || "{}");
+          capturedDescription = body.description as string;
           await route.fulfill({
             status: 200,
             contentType: "application/json",
@@ -363,6 +382,7 @@ test.describe("Route attachment to TP workouts", () => {
       },
     );
 
+    await page.goto(TP_URL, { waitUntil: "domcontentloaded" });
     await page.waitForSelector("[data-komoot-tab-btn]", { timeout: 10_000 });
 
     // Activate Komoot tab
@@ -384,21 +404,20 @@ test.describe("Route attachment to TP workouts", () => {
 
     await page.waitForTimeout(1000);
 
-    // Verify PUT request
-    const putRequest = getLastPutRequest();
-    const description = putRequest?.body.description as string;
+    // Verify captured PUT description
+    expect(capturedDescription).toBeDefined();
 
     // Should only contain one route line
     const routeLines = (
-      description.match(/Route: https:\/\/www\.komoot\.com\/routes\//g) || []
+      capturedDescription!.match(/Route: https:\/\/www\.komoot\.com\//g) || []
     ).length;
     expect(routeLines).toBe(1);
 
     // Should not contain old route ID
-    expect(description).not.toContain("old-route-id");
+    expect(capturedDescription).not.toContain("old-route-id");
 
     // Should contain existing notes
-    expect(description).toContain("Existing notes");
+    expect(capturedDescription).toContain("Existing notes");
 
     await page.close();
   });

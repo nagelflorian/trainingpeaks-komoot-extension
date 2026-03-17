@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "TrainingPeaks Komoot Plugin",
-  "version": "0.1.0",
+  "version": "1.0.0",
   "description": "Adds a Komoot tab to TrainingPeaks workout detail view with route suggestions and activity matching.",
   "permissions": ["storage", "cookies"],
   "host_permissions": [

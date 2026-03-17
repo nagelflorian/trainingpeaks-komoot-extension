@@ -1,7 +1,7 @@
 {
   "name": "trainingpeaks-komoot-extension",
   "private": true,
-  "version": "0.1.0",
+  "version": "1.0.0",
   "description": "Browser extension that adds a Komoot tab to TrainingPeaks workout detail view",
   "author": "Florian Nagel",
   "repository": {

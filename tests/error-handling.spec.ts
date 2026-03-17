@@ -588,6 +588,9 @@ test.describe("Error handling — Unsupported scenarios", () => {
     context,
     extensionId,
   }) => {
+    // Setup session mock FIRST so verifyAuth() succeeds
+    await setupSessionMock(context);
+
     // Setup auth but WITHOUT homeLocation in options
     const setupPage = await context.newPage();
     await setupPage.goto(
@@ -606,8 +609,6 @@ test.describe("Error handling — Unsupported scenarios", () => {
     });
     await setupPage.close();
 
-    await setupSessionMock(context);
-
     const page = await context.newPage();
     await page.route(`${TP_URL}**`, (route: Route) =>
       route.fulfill({
@@ -622,10 +623,10 @@ test.describe("Error handling — Unsupported scenarios", () => {
     // Activate Komoot tab
     await page.locator("[data-komoot-tab-btn]").click();
 
-    // Should show error or configuration message
-    await expect(
-      page.getByText(/(location|configure|settings|error)/i),
-    ).toBeVisible({ timeout: 10_000 });
+    // Should show the NO_HOME_LOCATION error message
+    await expect(page.getByText(/home location/i)).toBeVisible({
+      timeout: 10_000,
+    });
 
     await page.close();
   });
